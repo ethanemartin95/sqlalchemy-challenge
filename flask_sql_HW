@@ -15,6 +15,7 @@ import sqlalchemy
 from sqlalchemy.ext.automap import automap_base
 from sqlalchemy.orm import Session
 from sqlalchemy import create_engine, func, inspect
+from flask import Flask, jsonify
 
 engine = create_engine("sqlite:///Resources/hawaii.sqlite")
 
@@ -43,15 +44,172 @@ app = Flask(__name__)
 def welcome():
     """List all available api routes."""
     return (
-        f"/api/v1.0/precipitation:<br/>"
+        f"Available Routes:<br/>"
+        f"/api/v1.0/precipitation<br/>"
         f"/api/v1.0/stations<br/>"
         f"/api/v1.0/tobs<br/>"
-        f"/api/v1.0/<start><br/>"
-        f"/api/v1.0/<start>/<end>"
+        f"/api/v1.0/yyyy-mm-dd<br/>"
+        f"/api/v1.0/yyyy-mm-dd/yyyy-mm-dd"
     )
 
 
+@app.route("/api/v1.0/precipitation")
+def precipitation():
+    # Create our session (link) from Python to the DB
+    session = Session(engine)
+    
+    prcp_results = session.query(Measurement.date, func.avg(Measurement.prcp))\
+            .group_by(Measurement.date)
+
+    session.close()
+
+    # Convert list of tuples into normal list
+    prcp_by_date = []
+    for date, prcp in prcp_results:
+        prcp_dict = {}
+        prcp_dict["date"] = date
+        prcp_dict["prcp"] = prcp
+        prcp_by_date.append(prcp_dict)
+
+    return jsonify(prcp_by_date)
+
+@app.route("/api/v1.0/stations")
+def stations():
+        session = Session(engine)
+        
+        station_name = session.query(Station.name, Measurement.station, func.count(Measurement.tobs)).\
+        filter(Measurement.station == Station.station).\
+        group_by(Measurement.station).\
+        order_by(func.count(Measurement.tobs))
+        
+        session.close()
+        
+        all_stations = []
+        for name, station, count in station_name:
+            station_dict = {}
+            station_dict["name"] = name
+            station_dict["station"] = station
+            station_dict["count obs"] = count
+            all_stations.append(station_dict)
+
+        return jsonify(all_stations)
+    
+
+@app.route("/api/v1.0/tobs")
+def tobs():
+    session = Session(engine)
+
+    latest_date = session.query(Measurement.date).order_by(Measurement.date.desc()).first()
+    
+    latest_date[0]
+    latest_date_package = latest_date[0].split("-")
+    
+    latest_date = dt.date(int(latest_date_package[0]),int(latest_date_package[1]),int(latest_date_package[2]))
+    
+    query_date = latest_date - dt.timedelta(days=365)
+    
+    prcp_results = session.query(Measurement.date, func.avg(Measurement.prcp))\
+            .filter(Measurement.date > query_date)\
+            .filter(Measurement.date <= latest_date)\
+            .group_by(Measurement.date)
+
+    session.close()
+    
+    prcp_by_date = []
+    for date, prcp in prcp_results:
+        prcp_dict = {}
+        prcp_dict["date"] = date
+        prcp_dict["prcp"] = prcp
+        prcp_by_date.append(prcp_dict)
+
+    return jsonify(prcp_by_date)
 
 
-# Create our session (link) from Python to the DB
-session = Session(engine)
+@app.route("/api/v1.0/<start_date>")
+def start_date(start_date):
+    
+    session = Session(engine)
+    
+    earliest_date = session.query(Measurement.date).order_by(Measurement.date).first()
+    earliest_date_package = earliest_date[0].split("-")
+    earliest_date = dt.date(int(earliest_date_package[0]),int(earliest_date_package[1]),int(earliest_date_package[2]))
+ 
+    latest_date = session.query(Measurement.date).order_by(Measurement.date.desc()).first()
+    latest_date_package = latest_date[0].split("-")
+    latest_date = dt.date(int(latest_date_package[0]),int(latest_date_package[1]),int(latest_date_package[2]))
+    
+    session.close()
+    
+    start_date_package = start_date.split("-")
+    start_date = dt.date(int(start_date_package[0]),int(start_date_package[1]),int(start_date_package[2]))
+    
+    if start_date >= earliest_date and start_date <= latest_date:
+        
+        session = Session(engine)
+        
+        results = session.query(func.min(Measurement.tobs), func.avg(Measurement.tobs), func.max(Measurement.tobs)).\
+            filter(Measurement.date >= start_date).all()
+            
+        session.close()
+        
+        info = []
+        for min_temp, avg_temp, max_temp in results:
+            info_dict = {}
+            info_dict["min_temp"] = min_temp
+            info_dict["avg_temp"] = avg_temp
+            info_dict["max_temp"] = max_temp
+            info.append(info_dict)
+        
+        return jsonify(info)
+            
+    return jsonify({"error": f"Date out of range"}), 404
+
+@app.route("/api/v1.0/<start_date>/<end_date>")
+def state_end_date(start_date, end_date):
+    
+    session = Session(engine)
+    
+    earliest_date = session.query(Measurement.date).order_by(Measurement.date).first()
+    earliest_date_package = earliest_date[0].split("-")
+    earliest_date = dt.date(int(earliest_date_package[0]),int(earliest_date_package[1]),int(earliest_date_package[2]))
+ 
+    latest_date = session.query(Measurement.date).order_by(Measurement.date.desc()).first()
+    latest_date_package = latest_date[0].split("-")
+    latest_date = dt.date(int(latest_date_package[0]),int(latest_date_package[1]),int(latest_date_package[2]))
+    
+    session.close()
+    
+    start_date_package = start_date.split("-")
+    start_date = dt.date(int(start_date_package[0]),int(start_date_package[1]),int(start_date_package[2]))
+    
+    end_date_package = end_date.split("-")
+    end_date = dt.date(int(end_date_package[0]),int(end_date_package[1]),int(end_date_package[2]))
+    
+    
+    if start_date >= earliest_date and end_date <= latest_date:
+        
+        session = Session(engine)
+        
+        results = session.query(func.min(Measurement.tobs), func.avg(Measurement.tobs), func.max(Measurement.tobs)).\
+            filter(Measurement.date >= start_date).filter(Measurement.date <= end_date).all()
+            
+        session.close()
+        
+        info = []
+        for min_temp, avg_temp, max_temp in results:
+            info_dict = {}
+            info_dict["min_temp"] = min_temp
+            info_dict["avg_temp"] = avg_temp
+            info_dict["max_temp"] = max_temp
+            info.append(info_dict)
+        
+        return jsonify(info)
+            
+    return jsonify({"error": f"Date out of range"}), 404 
+    
+
+if __name__ == '__main__':
+    app.run(debug=True)
+
+
+
